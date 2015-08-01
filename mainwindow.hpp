@@ -3,7 +3,11 @@
 
 #include <QMainWindow>
 #include <QTableWidget>
+#include <utility>
+#include <mutex>
 #include "pinger.hpp"
+
+#include "pingtimeplot.hpp"
 
 namespace Ui {
 class MainWindow;
@@ -20,9 +24,15 @@ private:
 	Ui::MainWindow *ui;
 	QTableWidget *targetsTable;
 
+	PingTimePlot *pingTimePlot;
+	QVector<QVector<double>> results;
+	std::mutex mainWindowMutex;
+
 	void addHost_();
 	void addHost(const QString &host);
+	void removeHost(int row);
 	void runPing(const int row);
-
+	bool isHostEnabled(const int row) const;
+	void clearHost(const int row);
 };
 #endif // MAINWINDOW_HPP

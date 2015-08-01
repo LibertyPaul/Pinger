@@ -1,22 +1,38 @@
 #include "pinger.hpp"
-#include <unistd.h>
 #include <thread>
-#include <stdexcept>
 #include <cstring>
 #include <algorithm>
 
+#ifdef __linux__
+    #include <unistd.h>
+#endif
+
+#ifdef Q_OS_WIN
+    #include <Winsock2.h>
+    #include <ws2tcpip.h>
+    #include <windows.h>
+    #include <iphlpapi.h>
+    #include <icmpapi.h>
+#endif
+
 using namespace std;
 
-Pinger::Pinger(const string &host, const uint16_t requestCount, const uint32_t delay_microseconds):
+std::mutex Pinger::sysCallMutex;
+
+Pinger::Pinger(const string &host, const uint16_t requestCount, const double delay):
 	host(host),
 	requestCount(requestCount),
-	delay_microseconds(delay_microseconds),
-	progress(0),
-	pingerMutex(){
+    delay(delay),
+	progress(0){
 
-	if(delay_microseconds < 200000 && geteuid() != 0){
-		throw logic_error("dalay less than 200000 microseconds is only allowed to super user");
+#ifdef __linux__
+	this->sysCallMutex.lock();
+	int uid = getuid();
+	this->sysCallMutex.unlock();
+	if(delay < 0.2 && uid != 0){
+		throw logic_error("dalay less than 0.2 seconds is only allowed to super user");
 	}
+#endif
 
 }
 
@@ -24,20 +40,11 @@ Pinger::~Pinger(){
 }
 
 
-
-void Pinger::setRequestCount(const uint32_t requestCount){
-	this->requestCount = requestCount;
-}
-
-void Pinger::setDelay(const uint32_t delay_microseconds){
-	this->delay_microseconds = delay_microseconds;
-}
-
+#ifdef __linux__
 string Pinger::createCommand() const{
-	lock_guard<mutex> lg(this->pingerMutex);
-	string interval = to_string(static_cast<double>(this->delay_microseconds) / 1000000);
+    string interval = to_string(this->delay);
 	replace(interval.begin(), interval.end(), ',', '.');
-	return "ping -c " + to_string(this->requestCount) + " -i " + interval + " " + this->host;
+	return "ping -c " + to_string(this->requestCount + this->skip) + " -i " + interval + " " + this->host;
 }
 
 
@@ -54,93 +61,176 @@ double Pinger::extractPingTime_ms(const string &pingResult){
 
 	startPos += before.length();
 
-	string result_s = pingResult.substr(startPos, endPos);
-	return stod(result_s);
+	string result_s = pingResult.substr(startPos, endPos - startPos);
+	//костыль заменяющий '.' на ',' из за того, что stod не конвертирует число с '.'
+	std::replace(result_s.begin(), result_s.end(), '.', ',');
+
+	double result = stod(result_s);
+	return result;
 }
 
-PingResult Pinger::runPingProcessInstance(){
+std::vector<double> Pinger::runPingProcessInstance(){
 	this->progress = 0;
-	emit progressChanged(progress * 100);
+
 	string command = this->createCommand();
 
-	this->pingerMutex.lock();
-	FILE *ping_descriptor = popen(command.c_str(), "r");
-	this->pingerMutex.unlock();
+    FILE *ping_descriptor = popen(command.c_str(), "r");
 
 	if(ping_descriptor == nullptr){
-		lock_guard<mutex> lg(this->pingerMutex);
+		lock_guard<mutex> lg(this->sysCallMutex);
 		throw runtime_error(strerror(errno));
 	}
 
 
 	const uint32_t bufferSize = 1000;
 	unique_ptr<char> buffer(new char[bufferSize]);
-	vector<std::string> output;
 	vector<double> lags;
 
-
-	double progressStep = 1.0 / this->requestCount;
+	uint32_t skipCounter = this->skip;//пропускаем первый результат
+	double progressStep = 1.0 / (this->requestCount + skipCounter);
 	do{
-		this->pingerMutex.lock();
 		if(fgets(buffer.get(), bufferSize, ping_descriptor) != buffer.get() && ferror(ping_descriptor) != 0){
-			this->pingerMutex.unlock();
-			lock_guard<mutex> lg(this->pingerMutex);
+			lock_guard<mutex> lg(this->sysCallMutex);
 			throw runtime_error(strerror(errno));
 		}
-		this->pingerMutex.unlock();
+		if(skipCounter > 0){
+			--skipCounter;
+			continue;
+		}
+
+
+		if(this->stopFlag)
+			break;
 
 		string currentLine(buffer.get());
-		output.push_back(currentLine);
-		int32_t lagTime = extractPingTime_ms(currentLine);
+		double lagTime = extractPingTime_ms(currentLine);
 
 		if(lagTime != -1){//если в строке было время - записываем его и посылаем сигнал
-			lags.push_back(lagTime);
-			if(progress + progressStep <= 1.0){//если шагов больше чем requestCount - не переполняем счетчик
-				progress += progressStep;
-				emit progressChanged(progress * 100);
+			if(this->progress + progressStep <= 1.0){//если шагов больше чем requestCount - не переполняем счетчик
+				this->progress.store(this->progress + progressStep);
 			}
+
+			lags.push_back(lagTime);
 		}
-	}while(feof(ping_descriptor) == 0);
+	}while(feof(ping_descriptor) == 0 && this->stopFlag == false);
 
 
-	this->pingerMutex.lock();
-	int status = pclose(ping_descriptor);
+	this->sysCallMutex.lock();
+    int status = pclose(ping_descriptor);
 	int exitStatus = WEXITSTATUS(status);
-	this->pingerMutex.unlock();
-
+	this->sysCallMutex.unlock();
 	if(exitStatus != 0){
 		throw std::runtime_error("Ping failed");
-	}
+    }
 
-	progress = 1.0;
-	emit progressChanged(progress * 100);
+	if(this->stopFlag == false)
+		this->progress = 1.0;
 
-	double avg = std::accumulate(lags.cbegin(), lags.cend(), 0.0) / lags.size();
-	emit pingAverageTime(avg);
 	return lags;
 }
+#endif
 
-void Pinger::run(){
-	PingResult result;
+#ifdef Q_OS_WIN
+std::vector<double> Pinger::runPingProcessInstance(){
+
+    std::vector<double> result;
+    this->progress = 0;
+    double progressStep = 1.0 / this->requestCount;
+
+    WSADATA wsaData;
+    int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if(iResult != 0)
+        throw std::runtime_error("WSAStartup failed");
+
+
+    addrinfo *addr;
+    int res = getaddrinfo(this->host.c_str(), nullptr, nullptr, &addr);
+    if(res != 0)
+        throw std::runtime_error("getaddrinfo error");
+
+    char ip_s[128];
+    res = getnameinfo(addr->ai_addr, sizeof(*addr->ai_addr), ip_s, 256, nullptr, 0, 0);
+    if(res != 0)
+        throw std::runtime_error("getnameinfo error");
+
+    UINT ip = inet_addr(ip_s);
+
+
+    HANDLE hIcmp = IcmpCreateFile();
+    if(hIcmp == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("IcmpCreateFile error");
+
+    char SendData[32];
+    DWORD ReplySize = sizeof(ICMP_ECHO_REPLY) + sizeof(SendData);
+    LPVOID ReplyBuffer = reinterpret_cast<LPVOID>(malloc(ReplySize));
+    if(ReplyBuffer == nullptr)
+        throw std::runtime_error("malloc error");
+
+    std::chrono::duration<int, std::milli> pingDelay(static_cast<int>(this->delay * 1000));
+
+	for(int i = 0; i < this->requestCount && this->stopFlag == false; ++i){
+        auto lastTime = std::chrono::high_resolution_clock::now();
+
+        DWORD resIcmp = IcmpSendEcho(hIcmp, ip, SendData, sizeof(SendData), nullptr, ReplyBuffer, ReplySize, 1000);
+        if(resIcmp == 0)
+            throw std::runtime_error("IcmpSendEcho error");
+
+        PICMP_ECHO_REPLY pReply = reinterpret_cast<PICMP_ECHO_REPLY>(ReplyBuffer);
+
+        result.push_back(pReply->RoundTripTime);
+
+        if(this->progress + progressStep <= 1.0){//если шагов больше чем requestCount - не переполняем счетчик
+            this->progress += progressStep;
+        }
+
+        if(i < this->requestCount)
+            std::this_thread::sleep_until(lastTime + pingDelay);
+    }
+
+    return result;
+}
+#endif
+
+
+
+
+void Pinger::run() noexcept{
 	try{
-		result = this->runPingProcessInstance();
-	}catch(std::runtime_error &re){
-		emit exception(re.what());
-	}catch(...){
-		emit exception("Unknown exception");
-	}
+		std::lock_guard<mutex> lg(this->runInstanceMutex);
 
-	emit done(result);
+		this->stopFlag = false;
+		this->readyFlag = false;
+
+		this->result = std::move(this->runPingProcessInstance());
+
+		this->readyFlag = true;
+
+	}catch(std::runtime_error &re){
+		this->exception = std::make_shared<runtime_error>(re);
+	}catch(...){
+		this->exception = std::make_shared<runtime_error>(std::runtime_error("Unknown exception"));
+	}
 }
 
+void Pinger::stop(){
+	this->stopFlag = true;
+}
 
+double Pinger::getProgress() const noexcept{
+	return this->progress;
+}
 
+bool Pinger::isReady() const noexcept{
+	return this->readyFlag;
+}
 
+std::vector<double> Pinger::getResult() const{
+	return this->result;
+}
 
-
-
-
-
+std::shared_ptr<std::runtime_error> Pinger::getException() const{
+	return this->exception;
+}
 
 
 

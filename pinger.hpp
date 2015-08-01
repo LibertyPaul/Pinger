@@ -1,40 +1,48 @@
 #ifndef PINGER_HPP
 #define PINGER_HPP
 
-#include <QObject>
+#include <QVector>
+#include <QWaitCondition>
 #include <mutex>
 #include <vector>
+#include <atomic>
+#include <chrono>
+#include <stdexcept>
+#include <memory>
 
-typedef std::vector<double> PingResult;
 
-class Pinger : public QObject{
-	Q_OBJECT
+class Pinger{
 protected:
 	std::string host;
 	uint32_t requestCount;
-	uint32_t delay_microseconds;
-	double progress;//0 --> 1
-	mutable std::mutex pingerMutex;
+	static constexpr uint32_t skip = 5;
+	double delay;
+	std::atomic<bool> stopFlag, readyFlag;
+	std::atomic<double> progress;
+	static std::mutex sysCallMutex;
+	std::mutex runInstanceMutex, accessPropertyMutex;
+	std::vector<double> result;
+	std::shared_ptr<std::runtime_error> exception;
 
 
-	PingResult runPingProcessInstance();
+    std::vector<double> runPingProcessInstance();
+#ifdef __linux__
 	static double extractPingTime_ms(const std::string &PingResult);
 	std::string createCommand() const;
+#endif
+
 public:
-	Pinger(const std::string &host, const uint16_t requestCount, const uint32_t delay_microseconds);
+	Pinger(const std::string &host, const uint16_t requestCount, const double delay);
 	~Pinger();
 
-	void setRequestCount(const uint32_t requestCount);
-	void setDelay(const uint32_t delay_microseconds);
+	void run() noexcept;
 
-public slots:
-	void run();
+	double getProgress() const noexcept;
+	bool isReady() const noexcept;
+	std::vector<double> getResult() const;
+	std::shared_ptr<std::runtime_error> getException() const;
 
-signals:
-	void progressChanged(int value);
-	void done(PingResult result);
-	void pingAverageTime(double time_ms);
-	void exception(std::string what);
+    void stop();
 };
 
 #endif // PINGER_HPP

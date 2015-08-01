@@ -1,7 +1,6 @@
 #include "mainwindow.hpp"
 #include "ui_mainwindow.h"
 #include <stdexcept>
-#include <QCheckBox>
 #include <QProgressBar>
 #include <QMessageBox>
 #include <atomic>
@@ -12,9 +11,26 @@
 #include <sstream>
 #include <iomanip>
 
+#include "pingresult.hpp"
+#include "probabilitydensityplot.hpp"
+
+
+enum class tablePosition{
+	host = 0,
+	run = 1,
+	progress = 2,
+	stop = 3,
+	avg = 4,
+	probabilityDensity = 5,
+	clear = 6,
+	deleteBtn = 7
+};
+
+
 MainWindow::MainWindow(QWidget *parent) :
 	QMainWindow(parent),
-	ui(new Ui::MainWindow)
+	ui(new Ui::MainWindow),
+	pingTimePlot(new PingTimePlot(this))
 {
 	ui->setupUi(this);
 
@@ -38,18 +54,63 @@ MainWindow::MainWindow(QWidget *parent) :
 
 	connect(deleteAll, &QPushButton::released, [=](){
 		while(this->targetsTable->rowCount() > 0)
-			this->targetsTable->removeRow(0);
+			this->removeHost(0);
 	});
+
+	QPushButton *startAllPings = this->findChild<QPushButton *>("startAllPings");
+	if(startAllPings == nullptr)
+		throw std::logic_error("startAllPings not found");
+	connect(startAllPings, &QPushButton::released, [=](){
+		for(int i = 0; i < this->targetsTable->rowCount(); ++i){
+			this->runPing(i);
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));//чтобы пинги не конкурировали между собой
+		}
+	});
+
+	QPushButton *clearAllButton = this->findChild<QPushButton *>("clearAllButton");
+	if(clearAllButton == nullptr)
+		throw std::logic_error("clearAllButton not found");
+
+	connect(clearAllButton, &QPushButton::released, [=](){
+		for(int i = 0; i < this->targetsTable->rowCount(); ++i)
+			this->clearHost(i);
+	});
+
 
 	this->addHost("libertypaul.ru");
 	this->addHost("yandex.ru");
-	this->addHost("yahoo.com");
+	this->addHost("github.org");
+	this->addHost("habrahabr.ru");
+	this->addHost("stackoverflow.com");
+	this->addHost("twitter.com");
+	this->addHost("vkb2010.ru");
+	this->addHost("ec.dstu.edu.ru");
+	this->addHost("ru.wikipedia.org");
 
+
+	QPushButton *showAllResultsButton = this->findChild<QPushButton *>("showAllResultsButton");
+	if(showAllResultsButton == nullptr)
+		throw std::logic_error("showAllResultsButton not found");
+
+	connect(showAllResultsButton, &QPushButton::released, [=](){
+		PingTimePlot *plot = new PingTimePlot(this);
+		QVector<PingResult> pingResults(this->results.size());
+		for(int i = 0; i < this->results.size(); ++i){
+			PingResult currentResult;
+			currentResult.hostName = this->targetsTable->item(i, static_cast<int>(tablePosition::host))->text();
+			currentResult.time = this->results.at(i);
+			pingResults[i] = std::move(currentResult);
+		}
+
+
+		plot->show(pingResults);
+		plot->open();
+	});
 
 	targetsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
-	qRegisterMetaType<PingResult>("PingResult");
-	qRegisterMetaType<QVector<int>>("QVector<int>");
+	qRegisterMetaType<QVector<int>>();
+	qRegisterMetaType<const QVector<double> &>();
 }
 
 MainWindow::~MainWindow()
@@ -57,17 +118,6 @@ MainWindow::~MainWindow()
 	delete ui;
 }
 
-/*
-   table columns:
-   0: host
-   1: isActive
-   2: run
-   3: progress
-   4: avg
-   5: result
-   6: clear
-   7: delete
- */
 
 void MainWindow::addHost_(){
 	QLineEdit *newHost = this->findChild<QLineEdit *>("newHost");
@@ -87,110 +137,164 @@ void MainWindow::addHost_(){
 void MainWindow::addHost(const QString &host){
 	int row = this->targetsTable->rowCount();
 	this->targetsTable->insertRow(row);
+	this->results.push_back(QVector<double>());
 
-	this->targetsTable->setItem(row, 0, new QTableWidgetItem(host));
-
-	QCheckBox *isActive = new QCheckBox();
-	isActive->setChecked(true);
-	this->targetsTable->setCellWidget(row, 1, isActive);
+	this->targetsTable->setItem(row, static_cast<int>(tablePosition::host), new QTableWidgetItem(host));
 
 	QPushButton *runButton = new QPushButton("Start");
-	this->targetsTable->setCellWidget(row, 2, runButton);
-	runButton->setEnabled(isActive->isChecked());
-	connect(isActive, &QCheckBox::stateChanged, runButton, &QPushButton::setEnabled);
+	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::run), runButton);
 	connect(runButton, &QPushButton::released, [=](){
-		auto pos = runButton->pos();
-		auto index = this->targetsTable->indexAt(pos);
-		int row = index.row();
+		int row = this->targetsTable->indexAt(runButton->pos()).row();
 		this->runPing(row);
 	});
 
 
 	QProgressBar *pingProgress = new QProgressBar();
-	this->targetsTable->setCellWidget(row, 3, pingProgress);
+	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::progress), pingProgress);
 	pingProgress->setValue(0);
+
+	QPushButton *stopButton = new QPushButton("Stop");
+	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::stop), stopButton);
+	stopButton->setEnabled(false);
 
 	QTableWidgetItem *avgTime = new QTableWidgetItem;
 	avgTime->setTextAlignment(Qt::AlignCenter);
-	this->targetsTable->setItem(row, 4, avgTime);
+	this->targetsTable->setItem(row, static_cast<int>(tablePosition::avg), avgTime);
 
-	QPushButton *getResultButton = new QPushButton("Result");
-	this->targetsTable->setCellWidget(row, 5, getResultButton);
-	getResultButton->setEnabled(false);
-	connect(getResultButton, &QPushButton::released, [=](){
-		//TODO: show result
+	QPushButton *showPDPButton = new QPushButton("Probability density");
+	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::probabilityDensity), showPDPButton);
+	showPDPButton->setEnabled(false);
+	connect(showPDPButton, &QPushButton::released, [=](){
+		int row = this->targetsTable->indexAt(showPDPButton->pos()).row();
+		ProbabilityDensityPlot *pdp = new ProbabilityDensityPlot(this);
+		pdp->show(this->results.at(row));
+		pdp->open();
 	});
 
 	QPushButton *clearButton = new QPushButton("Clear");
 	connect(clearButton, &QPushButton::released, [=](){
-		pingProgress->setValue(0);
-		avgTime->setText("");
-		getResultButton->setEnabled(false);
-		//тут надо обнулить все значения об этой строке
+		int row = this->targetsTable->indexAt(clearButton->pos()).row();
+		this->clearHost(row);
 	});
-	this->targetsTable->setCellWidget(row, 6, clearButton);
+	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::clear), clearButton);
 
 	QPushButton *deleteButton = new QPushButton("Delete");
-	this->targetsTable->setCellWidget(row, 7, deleteButton);
+	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::deleteBtn), deleteButton);
 	connect(deleteButton, &QPushButton::released, [=](){
 		int row = this->targetsTable->indexAt(deleteButton->pos()).row();//я потратил 2 часа чтоб понять как это сделать
-		this->targetsTable->removeRow(row);
+		this->removeHost(row);
 	});
 
 
 }
 
+void MainWindow::clearHost(const int row){
+	QProgressBar *pingProgress = dynamic_cast<QProgressBar *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::progress)));
+	if(pingProgress == nullptr)
+		throw std::logic_error("pingProgress not found");
+	pingProgress->setValue(0);
 
+	QTableWidgetItem *avgTime = this->targetsTable->item(row, static_cast<int>(tablePosition::avg));
+	if(avgTime == nullptr)
+		throw std::logic_error("avgTime not found");
+	avgTime->setText("");
+
+	QPushButton *showPDPButton = dynamic_cast<QPushButton *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::probabilityDensity)));
+	if(showPDPButton == nullptr)
+		throw std::logic_error("showPDPButton not found");
+	showPDPButton->setEnabled(false);
+
+	QPushButton *getStopButton = dynamic_cast<QPushButton *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::stop)));
+	if(getStopButton == nullptr)
+		throw std::logic_error("getStopButton not found");
+	getStopButton->setEnabled(false);
+
+	this->results[row].clear();
+}
+
+void MainWindow::removeHost(int row){
+	this->targetsTable->removeRow(row);
+	this->results.remove(row);
+}
 
 
 void MainWindow::runPing(const int row){
-	QCheckBox *isActive = dynamic_cast<QCheckBox *>(this->targetsTable->cellWidget(row, 1));
-	if(isActive == nullptr)
-		throw std::runtime_error("isActive QCheckBox not found");
-
-	if(isActive->isChecked() == false){
-		QMessageBox::warning(isActive, "Host is disabled", "How the hell did you push disabled start button???");
-		return;
-	}
-
-	QTableWidgetItem *hostCell = this->targetsTable->item(row, 0);
+	QTableWidgetItem *hostCell = this->targetsTable->item(row, static_cast<int>(tablePosition::host));
 	QString qHost = hostCell->text();
 	std::string host = qHost.toUtf8().constData();
 
 
-	Pinger *pinger = new Pinger(host, 10, 200000);
+	QDoubleSpinBox *pingDelay = this->findChild<QDoubleSpinBox *>("pingDelay");
+	if(pingDelay == nullptr)
+		throw std::logic_error("pingDelay not found");
 
-	QProgressBar *pingProgress = dynamic_cast<QProgressBar *>(this->targetsTable->cellWidget(row, 3));
+	QSpinBox *requestCountInput = this->findChild<QSpinBox *>("pingCount");
+	if(requestCountInput == nullptr)
+		throw std::logic_error("pingCount not found");
+
+
+	Pinger *pinger = new Pinger(host, requestCountInput->value(), pingDelay->value());
+
+	QProgressBar *pingProgress = dynamic_cast<QProgressBar *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::progress)));
 	if(pingProgress == nullptr)
 		throw std::logic_error("pingProgress not found");
 
-	connect(pinger, &Pinger::progressChanged, pingProgress, &QProgressBar::setValue);
-	connect(pinger, &Pinger::exception, [&](std::string what){
-		QMessageBox::warning(nullptr, "Exception", what.c_str());
+	QTableWidgetItem *avgTime = this->targetsTable->item(row, static_cast<int>(tablePosition::avg));
+	if(avgTime == nullptr)
+		throw std::logic_error("avgTime not found");
+
+	QPushButton *showPDPButton = dynamic_cast<QPushButton *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::probabilityDensity)));
+	if(showPDPButton == nullptr)
+		throw std::logic_error("showPDPButton not found");
+
+	QPushButton *stopButton = dynamic_cast<QPushButton *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::stop)));
+	if(stopButton == nullptr)
+		throw std::logic_error("stopButton not found");
+	stopButton->setEnabled(true);
+
+	QTimer *updateTimer = new QTimer(this);
+	updateTimer->setInterval(100);
+	updateTimer->start();
+
+	connect(updateTimer, &QTimer::timeout, this, [=](){
+		std::shared_ptr<std::runtime_error> exception = pinger->getException();
+		if(exception != nullptr){
+			QMessageBox::warning(nullptr, "Error", exception->what());
+			updateTimer->stop();
+			return;
+		}
+
+		double progress_d = pinger->getProgress();
+		int progress = progress_d * 100;
+		pingProgress->setValue(progress);
+
+		if(pinger->isReady()){
+			updateTimer->stop();
+			QVector<double> result = QVector<double>::fromStdVector(pinger->getResult());
+			this->results[row] = result;
+			showPDPButton->setEnabled(true);
+			stopButton->setEnabled(false);
+
+			double avg = std::accumulate(result.cbegin(), result.cend(), 0.0) / result.size();
+			std::stringstream ss;
+			ss << std::setprecision(4) << avg << "ms";
+			std::string avg_s;
+			ss >> avg_s;
+
+			avgTime->setText(avg_s.c_str());
+
+
+		}
 	});
 
-	QMetaObject::Connection pingDoneConnection = connect(pinger, &Pinger::done, [&](PingResult pingResult){
-		//TODO: store pingResult somewhere
-		double avg = std::accumulate(pingResult.cbegin(), pingResult.cend(), 0.0) / pingResult.size() / 1000;
 
-		QTableWidgetItem *avgTime = this->targetsTable->item(row, 4);
-		if(avgTime == nullptr)
-			throw std::logic_error("avgTime not found");
 
-		std::stringstream ss;
-		ss << std::setprecision(4) << avg << "ms";
-		std::string avg_s;
-		ss >> avg_s;
-		avgTime->setText(avg_s.c_str());
-
-		QPushButton *getResultButton = dynamic_cast<QPushButton *>(this->targetsTable->cellWidget(row, 5));
-		if(getResultButton == nullptr)
-			throw std::logic_error("getResultButton not found");
-
-		getResultButton->setEnabled(true);
-
-		//disconnect(pingDoneConnection);
+	connect(stopButton, &QPushButton::released, [=](){
+		int row = this->targetsTable->indexAt(stopButton->pos()).row();
+		pinger->stop();
+		this->clearHost(row);
 	});
+
 
 	std::thread t(&Pinger::run, pinger);
 	t.detach();
