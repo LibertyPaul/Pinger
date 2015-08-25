@@ -34,6 +34,9 @@ MainWindow::MainWindow(QWidget *parent) :
 {
 	ui->setupUi(this);
 
+    QIcon icon("stuff/pingerIcon.ico");
+    this->setWindowIcon(icon);
+
 	this->targetsTable = this->findChild<QTableWidget *>("targetsTable");
 	if(this->targetsTable == nullptr)
 		throw std::logic_error("targetsTable not found");
