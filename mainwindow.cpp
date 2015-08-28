@@ -14,7 +14,6 @@
 #include <regex>
 
 #include "pingresult.hpp"
-#include "probabilitydensityplot.hpp"
 
 
 enum class tablePosition{
@@ -33,8 +32,8 @@ enum class tablePosition{
 MainWindow::MainWindow(QWidget *parent) :
 	QMainWindow(parent),
 	ui(new Ui::MainWindow),
-	pingTimePlot(new PingTimePlot(this))
-{
+	pingTimePlot(new PingTimePlot(this)){
+
 	ui->setupUi(this);
 
     QIcon icon("stuff/pingerIcon.ico");
@@ -44,40 +43,34 @@ MainWindow::MainWindow(QWidget *parent) :
 	if(this->targetsTable == nullptr)
 		throw std::logic_error("targetsTable not found");
 
-	QPushButton *submitNewHost = this->findChild<QPushButton *>("submitNewHost");
-	if(submitNewHost == nullptr)
+	if(this->ui->submitNewHost == nullptr)
 		throw std::logic_error("submitNewHost not found");
-	connect(submitNewHost, &QPushButton::released, this, &MainWindow::addHost_);
+	connect(this->ui->submitNewHost, &QPushButton::released, this, &MainWindow::addHost_);
 
-	QLineEdit *newHost = this->findChild<QLineEdit *>("newHost");
-	if(newHost == nullptr)
+	if(this->ui->newHost == nullptr)
 		throw std::logic_error("newHost not found");
-	connect(newHost, &QLineEdit::returnPressed, this, &MainWindow::addHost_);
+	connect(this->ui->newHost, &QLineEdit::returnPressed, this, &MainWindow::addHost_);
 
-	QPushButton *deleteAll = this->findChild<QPushButton *>("deleteAll");
-	if(deleteAll == nullptr)
+	if(this->ui->deleteAll == nullptr)
 		throw std::logic_error("deleteAll not found");
-
-	connect(deleteAll, &QPushButton::released, [=](){
+	connect(this->ui->deleteAll, &QPushButton::released, [=](){
 		while(this->targetsTable->rowCount() > 0)
 			this->removeHost(0);
 	});
 
-	QPushButton *startAllPings = this->findChild<QPushButton *>("startAllPings");
-	if(startAllPings == nullptr)
+	if(this->ui->startAllPings == nullptr)
 		throw std::logic_error("startAllPings not found");
-	connect(startAllPings, &QPushButton::released, [=](){
+	connect(this->ui->startAllPings, &QPushButton::released, [=](){
 		for(int i = 0; i < this->targetsTable->rowCount(); ++i){
 			this->runPing(i);
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));//чтобы пинги не конкурировали между собой
 		}
 	});
 
-	QPushButton *clearAllButton = this->findChild<QPushButton *>("clearAllButton");
-	if(clearAllButton == nullptr)
+	if(this->ui->clearAllButton == nullptr)
 		throw std::logic_error("clearAllButton not found");
 
-	connect(clearAllButton, &QPushButton::released, [=](){
+	connect(this->ui->clearAllButton, &QPushButton::released, [=](){
 		for(int i = 0; i < this->targetsTable->rowCount(); ++i)
 			this->clearHost(i);
 	});
@@ -99,11 +92,10 @@ MainWindow::MainWindow(QWidget *parent) :
 		this->addHost(currentLine);
 	}
 
-	QPushButton *showAllResultsButton = this->findChild<QPushButton *>("showAllResultsButton");
-	if(showAllResultsButton == nullptr)
+	if(this->ui->showAllResultsButton == nullptr)
 		throw std::logic_error("showAllResultsButton not found");
 
-	connect(showAllResultsButton, &QPushButton::released, [=](){
+	connect(this->ui->showAllResultsButton, &QPushButton::released, [=](){
 		PingTimePlot *plot = new PingTimePlot(this);
 		QVector<PingResult> pingResults(this->pingers.size());
 		for(int i = 0; i < this->pingers.size(); ++i){
@@ -122,11 +114,14 @@ MainWindow::MainWindow(QWidget *parent) :
 
 	qRegisterMetaType<QVector<int>>();
 	qRegisterMetaType<const QVector<double> &>();
+
+
+	this->pingTimeTable = new PingTimeTable(this);
+	this->pingTimePlot = new PingTimePlot(this);
+	this->probabilityDensityPlot = new ProbabilityDensityPlot(this);
 }
 
-MainWindow::~MainWindow()
-
-{
+MainWindow::~MainWindow(){
 	delete ui;
 }
 
@@ -185,7 +180,10 @@ void MainWindow::addHost(const std::string &host){
 	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::getSats), showStats);
 
 	connect(showStats, &QPushButton::released, [=](){
-		//тут открываем окно с таблицей времени
+		int row = this->targetsTable->indexAt(showStats->pos()).row();
+		QTableWidgetItem *hostField = this->targetsTable->item(row, static_cast<int>(tablePosition::host));
+		this->pingTimeTable->showTime(hostField->text(), QVector<double>::fromStdVector(this->pingers.at(row)->getResult()));
+		this->pingTimeTable->open();
 	});
 
 	QPushButton *showPDPButton = new QPushButton("Probability density");
@@ -275,6 +273,7 @@ void MainWindow::runPing(const int row){
 	std::shared_ptr<Pinger> pingerPtr(this->pingers[row]);
 
 	connect(updateTimer, &QTimer::timeout, this, [=](){
+		int row = this->targetsTable->indexAt(stopButton->pos()).row();//небольшой костыль
 		std::shared_ptr<std::runtime_error> exception = pingerPtr->getException();
 		if(exception != nullptr){
 			QMessageBox::warning(nullptr, "Error", exception->what());
@@ -282,8 +281,6 @@ void MainWindow::runPing(const int row){
 			updateTimer->stop();
 			return;
 		}
-
-		//TODO replace 'row' everywhere!!!!!
 
 		double progress_d = pingerPtr->getProgress();
 		int progress = progress_d * 100;

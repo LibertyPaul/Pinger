@@ -2,6 +2,7 @@
 #include <thread>
 #include <cstring>
 #include <algorithm>
+#include <utility>
 
 #ifdef __linux__
     #include <unistd.h>
@@ -38,7 +39,7 @@ Pinger::~Pinger(){
 
 
 #ifdef __linux__
-double Pinger::extractPingTime_ms(const string &pingResult){
+std::pair<bool, double> Pinger::extractPingTime_ms(const string &pingResult){
 	//ordinary output of ping is: 64 bytes from xx.xx.xx.xx: icmp_seq=1 ttl=54 time=89.2 ms
 	//we need to get '89.2' substring, turn it to double d = 89.2 and finally to uint32_t = 89
 	const string before = "time=";
@@ -47,7 +48,7 @@ double Pinger::extractPingTime_ms(const string &pingResult){
 	size_t startPos = pingResult.find(before);
 	size_t endPos = pingResult.find(after);
 	if(startPos == string::npos || endPos == string::npos)
-		return -1;
+		return std::make_pair(false, 0);
 
 	startPos += before.length();
 
@@ -56,7 +57,8 @@ double Pinger::extractPingTime_ms(const string &pingResult){
 	std::replace(result_s.begin(), result_s.end(), '.', ',');
 
 	double result = stod(result_s);
-	return result;
+	return std::make_pair(true, result);
+
 }
 
 std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, const double delay){
@@ -85,7 +87,7 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
 	unique_ptr<char> buffer(new char[bufferSize]);
 	vector<double> lags;
 
-	uint32_t skipCounter = this->skip;//пропускаем первый результат
+	int32_t skipCounter = this->skip;//пропускаем первый результат
 	double progressStep = 1.0 / (requestCount + skipCounter);
 	do{
 		if(fgets(buffer.get(), bufferSize, ping_descriptor) != buffer.get() && ferror(ping_descriptor) != 0){
@@ -100,19 +102,18 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
 		string currentLine(buffer.get());
 		if(currentLine.find("ping: ") == 0)//ping notified us about an error
 			throw std::runtime_error(currentLine.substr(6));
-		else if(skipCounter > 0){
-			--skipCounter;
-			continue;
-		}
 
-		double lagTime = extractPingTime_ms(currentLine);
+		std::pair<bool, double> lagTime = extractPingTime_ms(currentLine);
 
-		if(lagTime != -1){//если в строке было время - записываем его и посылаем сигнал
+		if(lagTime.first){//если в строке было время - записываем его и посылаем сигнал
+			//skip, if required
 			if(this->progress + progressStep <= 1.0){//если шагов больше чем requestCount - не переполняем счетчик
 				this->progress.store(this->progress + progressStep);
 			}
+			if(skipCounter --> 0)//brand new '-->' operator: "Goes to ..."
+				continue;
 
-			lags.push_back(lagTime);
+			lags.push_back(lagTime.second);
 		}
 	}while(feof(ping_descriptor) == 0 && this->stopFlag == false);
 

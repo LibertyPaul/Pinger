@@ -18,7 +18,8 @@ SOURCES += main.cpp\
     pingtimeplot.cpp \
     QCustomPlot/qcustomplot.cpp \
     probabilitydensityplot.cpp \
-    colorgenerator.cpp
+    colorgenerator.cpp \
+    pingtimetable.cpp
 
 HEADERS  += mainwindow.hpp \
     pinger.hpp \
@@ -26,11 +27,13 @@ HEADERS  += mainwindow.hpp \
     QCustomPlot/qcustomplot.h \
     pingresult.hpp \
     probabilitydensityplot.hpp \
-    colorgenerator.hpp
+    colorgenerator.hpp \
+    pingtimetable.hpp
 
 FORMS    += mainwindow.ui \
     pingtimeplot.ui \
-    probabilitydensityplot.ui
+    probabilitydensityplot.ui \
+    pingtimetable.ui
 
 CONFIG += c++11
 QMAKE_CXXFLAGS += -pthread

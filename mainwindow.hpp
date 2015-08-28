@@ -8,6 +8,8 @@
 #include "pinger.hpp"
 
 #include "pingtimeplot.hpp"
+#include "pingtimetable.hpp"
+#include "probabilitydensityplot.hpp"
 
 namespace Ui {
 class MainWindow;
@@ -25,7 +27,9 @@ private:
 	QTableWidget *targetsTable;
 
 	PingTimePlot *pingTimePlot;
-	//QVector<QVector<double>> results;
+	PingTimeTable *pingTimeTable;
+	ProbabilityDensityPlot *probabilityDensityPlot;
+
 	QVector<std::shared_ptr<Pinger>> pingers;
 	std::mutex mainWindowMutex;
 

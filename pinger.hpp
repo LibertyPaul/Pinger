@@ -25,7 +25,7 @@ protected:
 
 	std::vector<double> runPingProcessInstance(const uint16_t requestCount, const double delay);
 #ifdef __linux__
-	static double extractPingTime_ms(const std::string &PingResult);
+	static std::pair<bool, double> extractPingTime_ms(const std::string &PingResult);
 	std::string createCommand() const;
 #endif
 
