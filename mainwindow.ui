@@ -92,7 +92,7 @@
      <number>0</number>
     </property>
     <property name="columnCount">
-     <number>8</number>
+     <number>9</number>
     </property>
     <column>
      <property name="text">
@@ -122,6 +122,11 @@
     <column>
      <property name="text">
       <string>Avg time</string>
+     </property>
+    </column>
+    <column>
+     <property name="text">
+      <string>Get stats</string>
      </property>
     </column>
     <column>
@@ -267,7 +272,7 @@
      <x>0</x>
      <y>0</y>
      <width>1155</width>
-     <height>21</height>
+     <height>25</height>
     </rect>
    </property>
   </widget>

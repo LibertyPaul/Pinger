@@ -17,7 +17,8 @@ public:
 	explicit ProbabilityDensityPlot(QWidget *parent = 0);
 	~ProbabilityDensityPlot();
 
-	void show(QVector<double> time);
+	void show(const std::vector<double> &time);
+	void show(const QVector<double> &time);
 
 private:
 	void plot(const QVector<double> &x, const QVector<double> &y);

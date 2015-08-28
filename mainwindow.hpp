@@ -25,11 +25,13 @@ private:
 	QTableWidget *targetsTable;
 
 	PingTimePlot *pingTimePlot;
-	QVector<QVector<double>> results;
+	//QVector<QVector<double>> results;
+	QVector<std::shared_ptr<Pinger>> pingers;
 	std::mutex mainWindowMutex;
 
+	bool isCorrectHostname(const std::string &hostname) const;
 	void addHost_();
-	void addHost(const QString &host);
+	void addHost(const std::string &host);
 	void removeHost(int row);
 	void runPing(const int row);
 	bool isHostEnabled(const int row) const;

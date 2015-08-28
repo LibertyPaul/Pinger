@@ -20,7 +20,11 @@ ProbabilityDensityPlot::~ProbabilityDensityPlot()
 	delete ui;
 }
 
-void ProbabilityDensityPlot::show(QVector<double> time){
+void ProbabilityDensityPlot::show(const std::vector<double> &time){
+	this->show(QVector<double>::fromStdVector(time));
+}
+
+void ProbabilityDensityPlot::show(const QVector<double> &time){
 	QVector<double> x;
 	QVector<double> y;
 

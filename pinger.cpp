@@ -18,7 +18,7 @@
 using namespace std;
 
 std::mutex Pinger::sysCallMutex;
-
+/*
 Pinger::Pinger(const string &host, const uint16_t requestCount, const double delay):
 	host(host),
 	requestCount(requestCount),
@@ -26,14 +26,11 @@ Pinger::Pinger(const string &host, const uint16_t requestCount, const double del
 	progress(0){
 
 #ifdef __linux__
-	this->sysCallMutex.lock();
-	int uid = getuid();
-	this->sysCallMutex.unlock();
-	if(delay < 0.2 && uid != 0){
-		throw logic_error("dalay less than 0.2 seconds is only allowed to super user");
-	}
-#endif
 
+#endif
+}*/
+
+Pinger::Pinger(const std::string &host): host(host){
 }
 
 Pinger::~Pinger(){
@@ -41,13 +38,6 @@ Pinger::~Pinger(){
 
 
 #ifdef __linux__
-string Pinger::createCommand() const{
-    string interval = to_string(this->delay);
-	replace(interval.begin(), interval.end(), ',', '.');
-	return "ping -c " + to_string(this->requestCount + this->skip) + " -i " + interval + " " + this->host;
-}
-
-
 double Pinger::extractPingTime_ms(const string &pingResult){
 	//ordinary output of ping is: 64 bytes from xx.xx.xx.xx: icmp_seq=1 ttl=54 time=89.2 ms
 	//we need to get '89.2' substring, turn it to double d = 89.2 and finally to uint32_t = 89
@@ -69,10 +59,19 @@ double Pinger::extractPingTime_ms(const string &pingResult){
 	return result;
 }
 
-std::vector<double> Pinger::runPingProcessInstance(){
+std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, const double delay){
 	this->progress = 0;
 
-	string command = this->createCommand();
+	/*
+	if(delay < 0.2){
+		delay = 0.2;//on UNIX only root can run ping with delay less than 0.2
+	}
+	*/
+
+	string interval = to_string(delay);
+	replace(interval.begin(), interval.end(), ',', '.');
+	string command =  "ping -c " + to_string(requestCount + this->skip) + " -i " + interval + " " + this->host;
+	command += " 2>&1";//redirect stderr to stdout
 
     FILE *ping_descriptor = popen(command.c_str(), "r");
 
@@ -87,15 +86,11 @@ std::vector<double> Pinger::runPingProcessInstance(){
 	vector<double> lags;
 
 	uint32_t skipCounter = this->skip;//пропускаем первый результат
-	double progressStep = 1.0 / (this->requestCount + skipCounter);
+	double progressStep = 1.0 / (requestCount + skipCounter);
 	do{
 		if(fgets(buffer.get(), bufferSize, ping_descriptor) != buffer.get() && ferror(ping_descriptor) != 0){
 			lock_guard<mutex> lg(this->sysCallMutex);
 			throw runtime_error(strerror(errno));
-		}
-		if(skipCounter > 0){
-			--skipCounter;
-			continue;
 		}
 
 
@@ -103,6 +98,13 @@ std::vector<double> Pinger::runPingProcessInstance(){
 			break;
 
 		string currentLine(buffer.get());
+		if(currentLine.find("ping: ") == 0)//ping notified us about an error
+			throw std::runtime_error(currentLine.substr(6));
+		else if(skipCounter > 0){
+			--skipCounter;
+			continue;
+		}
+
 		double lagTime = extractPingTime_ms(currentLine);
 
 		if(lagTime != -1){//если в строке было время - записываем его и посылаем сигнал
@@ -131,7 +133,7 @@ std::vector<double> Pinger::runPingProcessInstance(){
 #endif
 
 #ifdef Q_OS_WIN
-std::vector<double> Pinger::runPingProcessInstance(){
+std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, const double delay){
 
     std::vector<double> result;
     this->progress = 0;
@@ -166,9 +168,9 @@ std::vector<double> Pinger::runPingProcessInstance(){
     if(ReplyBuffer == nullptr)
         throw std::runtime_error("malloc error");
 
-    std::chrono::duration<int, std::milli> pingDelay(static_cast<int>(this->delay * 1000));
+	std::chrono::duration<int, std::milli> pingDelay(static_cast<int>(delay * 1000));
 
-	for(int i = 0; i < this->requestCount && this->stopFlag == false; ++i){
+	for(int i = 0; i < requestCount && this->stopFlag == false; ++i){
         auto lastTime = std::chrono::high_resolution_clock::now();
 
         DWORD resIcmp = IcmpSendEcho(hIcmp, ip, SendData, sizeof(SendData), nullptr, ReplyBuffer, ReplySize, 1000);
@@ -194,14 +196,14 @@ std::vector<double> Pinger::runPingProcessInstance(){
 
 
 
-void Pinger::run() noexcept{
+void Pinger::run(const uint16_t requestCount, const double delay) noexcept{
 	try{
 		std::lock_guard<mutex> lg(this->runInstanceMutex);
 
 		this->stopFlag = false;
 		this->readyFlag = false;
 
-		this->result = std::move(this->runPingProcessInstance());
+		this->result = std::move(this->runPingProcessInstance(requestCount, delay));
 
 		this->readyFlag = true;
 
