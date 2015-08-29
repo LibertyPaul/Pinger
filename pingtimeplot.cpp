@@ -22,11 +22,10 @@ PingTimePlot::PingTimePlot(QWidget *parent) :
 	connect(ui->pingResultPlot->yAxis, SIGNAL(rangeChanged(QCPRange)), ui->pingResultPlot->yAxis2, SLOT(setRange(QCPRange)));
 
 	ui->pingResultPlot->legend->setVisible(true);
-	ui->pingResultPlot->setLocale(QLocale(QLocale::Russian, QLocale::Russia));
-	ui->pingResultPlot->xAxis->setLabel("# запроса");
-	ui->pingResultPlot->yAxis->setLabel("лаг, мс");
+	ui->pingResultPlot->setLocale(QLocale(QLocale::English, QLocale::UnitedStates));
+	ui->pingResultPlot->xAxis->setLabel("Request no.");
+	ui->pingResultPlot->yAxis->setLabel("Lag, ms");
 	ui->pingResultPlot->xAxis->setTickStep(1);
-
 
 }
 
@@ -70,7 +69,8 @@ void PingTimePlot::show(const QVector<PingResult> &data){
 
 	ui->pingResultPlot->xAxis->setRange(0, maxX - 1);
 	ui->pingResultPlot->yAxis->setRange(0, maxY);
-	ui->pingResultPlot->repaint();
+	ui->pingResultPlot->xAxis->setTickStep(1);
+	ui->pingResultPlot->replot();
 }
 
 

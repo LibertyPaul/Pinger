@@ -20,7 +20,7 @@ protected:
 	static std::mutex sysCallMutex;
     mutable std::mutex runInstanceMutex, accessPropertyMutex, progressMutex;
 	std::vector<double> result;
-	std::shared_ptr<std::runtime_error> exception;
+	std::unique_ptr<std::runtime_error> exception;
 
 
 	std::vector<double> runPingProcessInstance(const uint16_t requestCount, const double delay);
@@ -38,7 +38,7 @@ public:
 	double getProgress() const noexcept;
 	bool isReady() const noexcept;
 	std::vector<double> getResult() const;
-	std::shared_ptr<std::runtime_error> getException() const;
+	std::runtime_error *getLastException();
 
     void stop();
 };

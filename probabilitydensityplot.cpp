@@ -12,7 +12,8 @@ ProbabilityDensityPlot::ProbabilityDensityPlot(QWidget *parent) :
 
 	connect(ui->probabilityDensityPlotArea->xAxis, SIGNAL(rangeChanged(QCPRange)), ui->probabilityDensityPlotArea->xAxis2, SLOT(setRange(QCPRange)));
 	connect(ui->probabilityDensityPlotArea->yAxis, SIGNAL(rangeChanged(QCPRange)), ui->probabilityDensityPlotArea->yAxis2, SLOT(setRange(QCPRange)));
-
+	ui->probabilityDensityPlotArea->xAxis->setLabel("Time, ms");
+	ui->probabilityDensityPlotArea->yAxis->setLabel("Ratio");
 }
 
 ProbabilityDensityPlot::~ProbabilityDensityPlot()
@@ -43,18 +44,12 @@ void ProbabilityDensityPlot::show(const QVector<double> &time){
 void ProbabilityDensityPlot::plot(const QVector<double> &x, const QVector<double> &y){
 	double maxX = *std::max_element(x.cbegin(), x.cend());
 	double minX = *std::min_element(x.cbegin(), x.cend());
-
 	double maxY = *std::max_element(y.cbegin(), y.cend());
-	//double minY = *std::min_element(y.cbegin(), y.cend());
 
 
 	QCPGraph *graph = ui->probabilityDensityPlotArea->addGraph();
-	graph->setName("Распределение вероятности");
-
 	QPen pen;
-	pen.setWidth(1);
-	//ColorGenerator cg;
-	//QColor color = cg.generate();
+	pen.setWidth(2);
 	QColor color("black");
 	pen.setColor(color);
 	graph->setPen(pen);
@@ -62,9 +57,8 @@ void ProbabilityDensityPlot::plot(const QVector<double> &x, const QVector<double
 	graph->setLineStyle(QCPGraph::lsImpulse);
 
 	graph->setData(x, y);
-	//ui->probabilityDensityPlotArea->xAxis->setTickStep(1);
 	const int margin = 25;
 	ui->probabilityDensityPlotArea->xAxis->setRange(minX - margin, maxX - 1 + margin);
 	ui->probabilityDensityPlotArea->yAxis->setRange(0, maxY * 1.1);
-	ui->probabilityDensityPlotArea->repaint();
+	ui->probabilityDensityPlotArea->replot();
 }

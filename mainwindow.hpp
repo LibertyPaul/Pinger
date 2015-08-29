@@ -32,6 +32,7 @@ private:
 
 	QVector<std::shared_ptr<Pinger>> pingers;
 	std::mutex mainWindowMutex;
+	std::mutex hostListMutex;
 
 	bool isCorrectHostname(const std::string &hostname) const;
 	void addHost_();

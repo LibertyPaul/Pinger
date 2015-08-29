@@ -58,13 +58,6 @@ MainWindow::MainWindow(QWidget *parent) :
 			this->removeHost(0);
 	});
 
-	if(this->ui->stopAllButton == nullptr)
-		throw std::logic_error("stopAllButton not found");
-	connect(this->ui->stopAllButton, &QPushButton::released, [=](){
-		for(int i = 0; i < this->pingers.size(); ++i)
-			this->stopPinger(i);
-	});
-
 	if(this->ui->startAllPings == nullptr)
 		throw std::logic_error("startAllPings not found");
 	connect(this->ui->startAllPings, &QPushButton::released, [=](){
@@ -72,6 +65,13 @@ MainWindow::MainWindow(QWidget *parent) :
 			this->runPing(i);
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));//чтобы пинги не конкурировали между собой
 		}
+	});
+
+	if(this->ui->stopAllButton == nullptr)
+		throw std::logic_error("stopAllButton not found");
+	connect(this->ui->stopAllButton, &QPushButton::released, [=](){
+		for(int i = 0; i < this->pingers.size(); ++i)
+			this->stopPinger(i);
 	});
 
 	if(this->ui->clearAllButton == nullptr)
@@ -102,7 +102,6 @@ MainWindow::MainWindow(QWidget *parent) :
 		throw std::logic_error("showAllResultsButton not found");
 
 	connect(this->ui->showAllResultsButton, &QPushButton::released, [=](){
-		//PingTimePlot *plot = new PingTimePlot(this);
 		QVector<PingResult> pingResults(this->pingers.size());
 		for(int i = 0; i < this->pingers.size(); ++i){
 			PingResult currentResult;
@@ -111,9 +110,6 @@ MainWindow::MainWindow(QWidget *parent) :
 			pingResults[i] = std::move(currentResult);
 		}
 
-
-		//plot->show(pingResults);
-		//plot->open();
 		this->pingTimePlot->show(pingResults);
 		this->pingTimePlot->open();
 	});
@@ -283,7 +279,7 @@ void MainWindow::runPing(const int row){
 
 	connect(updateTimer, &QTimer::timeout, this, [=](){
 		int row = this->targetsTable->indexAt(stopButton->pos()).row();//небольшой костыль
-		std::shared_ptr<std::runtime_error> exception = pingerPtr->getException();
+		std::unique_ptr<std::runtime_error> exception = std::move(std::unique_ptr<std::runtime_error>(pingerPtr->getLastException()));
 		if(exception != nullptr){
 			QMessageBox::warning(nullptr, "Error", exception->what());
 			this->clearHost(row);
