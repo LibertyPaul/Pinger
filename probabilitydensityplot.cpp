@@ -58,7 +58,7 @@ void ProbabilityDensityPlot::plot(const QVector<double> &x, const QVector<double
 
 	graph->setData(x, y);
 	const int margin = 25;
-	ui->probabilityDensityPlotArea->xAxis->setRange(minX - margin, maxX - 1 + margin);
+	ui->probabilityDensityPlotArea->xAxis->setRange(std::max(0., minX - margin), maxX - 1 + margin);
 	ui->probabilityDensityPlotArea->yAxis->setRange(0, maxY * 1.1);
 	ui->probabilityDensityPlotArea->replot();
 }
