@@ -40,5 +40,6 @@ private:
 	void runPing(const int row);
 	bool isHostEnabled(const int row) const;
 	void clearHost(const int row);
+	void stopPinger(const int row);
 };
 #endif // MAINWINDOW_HPP

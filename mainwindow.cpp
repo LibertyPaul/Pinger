@@ -58,6 +58,13 @@ MainWindow::MainWindow(QWidget *parent) :
 			this->removeHost(0);
 	});
 
+	if(this->ui->stopAllButton == nullptr)
+		throw std::logic_error("stopAllButton not found");
+	connect(this->ui->stopAllButton, &QPushButton::released, [=](){
+		for(int i = 0; i < this->pingers.size(); ++i)
+			this->stopPinger(i);
+	});
+
 	if(this->ui->startAllPings == nullptr)
 		throw std::logic_error("startAllPings not found");
 	connect(this->ui->startAllPings, &QPushButton::released, [=](){
@@ -69,7 +76,6 @@ MainWindow::MainWindow(QWidget *parent) :
 
 	if(this->ui->clearAllButton == nullptr)
 		throw std::logic_error("clearAllButton not found");
-
 	connect(this->ui->clearAllButton, &QPushButton::released, [=](){
 		for(int i = 0; i < this->targetsTable->rowCount(); ++i)
 			this->clearHost(i);
@@ -86,7 +92,7 @@ MainWindow::MainWindow(QWidget *parent) :
 		currentLine = currentLine.substr(currentLine.find_first_not_of(' '));
 		if(currentLine.length() == 0)
 			break;
-		currentLine = currentLine.substr(0, currentLine.find_first_of(' '));
+		currentLine = currentLine.substr(0, currentLine.find_first_of(' '));//TODO: remove not only spaces but TABs and other symbols those witch cann not apper in hostname or ip
 		if(currentLine.length() == 0)
 			break;
 		this->addHost(currentLine);
@@ -96,7 +102,7 @@ MainWindow::MainWindow(QWidget *parent) :
 		throw std::logic_error("showAllResultsButton not found");
 
 	connect(this->ui->showAllResultsButton, &QPushButton::released, [=](){
-		PingTimePlot *plot = new PingTimePlot(this);
+		//PingTimePlot *plot = new PingTimePlot(this);
 		QVector<PingResult> pingResults(this->pingers.size());
 		for(int i = 0; i < this->pingers.size(); ++i){
 			PingResult currentResult;
@@ -106,8 +112,10 @@ MainWindow::MainWindow(QWidget *parent) :
 		}
 
 
-		plot->show(pingResults);
-		plot->open();
+		//plot->show(pingResults);
+		//plot->open();
+		this->pingTimePlot->show(pingResults);
+		this->pingTimePlot->open();
 	});
 
 	targetsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -190,9 +198,12 @@ void MainWindow::addHost(const std::string &host){
 	this->targetsTable->setCellWidget(row, static_cast<int>(tablePosition::probabilityDensity), showPDPButton);
 	connect(showPDPButton, &QPushButton::released, [=](){
 		int row = this->targetsTable->indexAt(showPDPButton->pos()).row();
-		ProbabilityDensityPlot *pdp = new ProbabilityDensityPlot(this);
-		pdp->show(this->pingers.at(row)->getResult());
-		pdp->open();
+		//ProbabilityDensityPlot *pdp = new ProbabilityDensityPlot(this);
+		//pdp->show(this->pingers.at(row)->getResult());
+		//pdp->open();
+
+		this->probabilityDensityPlot->show(this->pingers.at(row)->getResult());
+		this->probabilityDensityPlot->open();
 	});
 
 	QPushButton *clearButton = new QPushButton("Clear");
@@ -213,6 +224,8 @@ void MainWindow::addHost(const std::string &host){
 }
 
 void MainWindow::clearHost(const int row){
+	this->stopPinger(row);
+
 	QProgressBar *pingProgress = dynamic_cast<QProgressBar *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::progress)));
 	if(pingProgress == nullptr)
 		throw std::logic_error("pingProgress not found");
@@ -246,10 +259,6 @@ void MainWindow::removeHost(int row){
 
 
 void MainWindow::runPing(const int row){
-	QTableWidgetItem *hostCell = this->targetsTable->item(row, static_cast<int>(tablePosition::host));
-	QString qHost = hostCell->text();
-	std::string host = qHost.toUtf8().constData();
-
 	QProgressBar *pingProgress = dynamic_cast<QProgressBar *>(this->targetsTable->cellWidget(row, static_cast<int>(tablePosition::progress)));
 	if(pingProgress == nullptr)
 		throw std::logic_error("pingProgress not found");
@@ -313,9 +322,7 @@ void MainWindow::runPing(const int row){
 
 
 	connect(stopButton, &QPushButton::released, [=](){
-		int row = this->targetsTable->indexAt(stopButton->pos()).row();
 		pingerPtr->stop();
-		this->clearHost(row);
 	});
 
 
@@ -337,8 +344,9 @@ void MainWindow::runPing(const int row){
 }
 
 
-
-
+void MainWindow::stopPinger(const int row){
+	this->pingers[row]->stop();
+}
 
 
 

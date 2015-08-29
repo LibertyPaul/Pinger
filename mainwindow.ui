@@ -42,7 +42,7 @@
           <string> сек.</string>
          </property>
          <property name="minimum">
-          <double>0.200000000000000</double>
+          <double>0.100000000000000</double>
          </property>
          <property name="maximum">
           <double>10000.000000000000000</double>
@@ -207,6 +207,26 @@
       <widget class="QPushButton" name="startAllPings">
        <property name="text">
         <string>Run all</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_4">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="stopAllButton">
+       <property name="text">
+        <string>Stop all</string>
        </property>
       </widget>
      </item>

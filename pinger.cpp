@@ -101,7 +101,7 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
         if(lagTime.first){//если в строке было время - записываем его и посылаем сигнал
             this->progressMutex.lock();
 			if(this->progress + progressStep <= 1.0){//если шагов больше чем requestCount - не переполняем счетчик
-				this->progress.store(this->progress + progressStep);
+				this->progress += progressStep;
 			}
             this->progressMutex.unlock();
 
