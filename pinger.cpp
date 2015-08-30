@@ -3,6 +3,7 @@
 #include <cstring>
 #include <algorithm>
 #include <utility>
+#include <cstdlib>
 
 #ifdef __linux__
     #include <unistd.h>
@@ -14,22 +15,12 @@
     #include <windows.h>
     #include <iphlpapi.h>
     #include <icmpapi.h>
+    #include <windns.h>
 #endif
 
 using namespace std;
 
 std::mutex Pinger::sysCallMutex;
-/*
-Pinger::Pinger(const string &host, const uint16_t requestCount, const double delay):
-	host(host),
-	requestCount(requestCount),
-    delay(delay),
-	progress(0){
-
-#ifdef __linux__
-
-#endif
-}*/
 
 Pinger::Pinger(const std::string &host): host(host){
 }
@@ -62,7 +53,9 @@ std::pair<bool, double> Pinger::extractPingTime_ms(const string &pingResult){
 }
 
 std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, const double delay){
+    this->progressMutex.lock();
 	this->progress = 0;
+    this->progressMutex.unlock();
 
 	/*
 	if(delay < 0.2){
@@ -105,11 +98,14 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
 
 		std::pair<bool, double> lagTime = extractPingTime_ms(currentLine);
 
-		if(lagTime.first){//если в строке было время - записываем его и посылаем сигнал
-			//skip, if required
+        if(lagTime.first){//если в строке было время - записываем его и посылаем сигнал
+            this->progressMutex.lock();
 			if(this->progress + progressStep <= 1.0){//если шагов больше чем requestCount - не переполняем счетчик
 				this->progress.store(this->progress + progressStep);
 			}
+            this->progressMutex.unlock();
+
+            //skip, if required
 			if(skipCounter --> 0)//brand new '-->' operator: "Goes to ..."
 				continue;
 
@@ -126,8 +122,11 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
 		throw std::runtime_error("Ping failed");
     }
 
-	if(this->stopFlag == false)
+    if(this->stopFlag == false){
+        this->progressMutex.lock();
 		this->progress = 1.0;
+        this->progressMutex.unlock();
+    }
 
 	return lags;
 }
@@ -135,29 +134,23 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
 
 #ifdef Q_OS_WIN
 std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, const double delay){
-
     std::vector<double> result;
+    this->progressMutex.lock();
     this->progress = 0;
-    double progressStep = 1.0 / this->requestCount;
+    this->progressMutex.unlock();
+    double progressStep = 1.0 / requestCount;
 
     WSADATA wsaData;
     int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if(iResult != 0)
         throw std::runtime_error("WSAStartup failed");
 
+    PDNS_RECORD dnsResultPtr;
+    DNS_STATUS dnsStatus = DnsQuery_UTF8(this->host.c_str(), DNS_TYPE_A, DNS_QUERY_STANDARD, nullptr, &dnsResultPtr, nullptr);
+    if(dnsStatus != DNS_RCODE_NOERROR)
+        throw std::runtime_error("DnsQuery error");
 
-    addrinfo *addr;
-    int res = getaddrinfo(this->host.c_str(), nullptr, nullptr, &addr);
-    if(res != 0)
-        throw std::runtime_error("getaddrinfo error");
-
-    char ip_s[128];
-    res = getnameinfo(addr->ai_addr, sizeof(*addr->ai_addr), ip_s, 256, nullptr, 0, 0);
-    if(res != 0)
-        throw std::runtime_error("getnameinfo error");
-
-    UINT ip = inet_addr(ip_s);
-
+    IP4_ADDRESS ip = dnsResultPtr->Data.A.IpAddress;
 
     HANDLE hIcmp = IcmpCreateFile();
     if(hIcmp == INVALID_HANDLE_VALUE)
@@ -169,9 +162,9 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
     if(ReplyBuffer == nullptr)
         throw std::runtime_error("malloc error");
 
-	std::chrono::duration<int, std::milli> pingDelay(static_cast<int>(delay * 1000));
+    std::chrono::duration<int, std::milli> pingDelay(static_cast<int>(delay * 1000));
 
-	for(int i = 0; i < requestCount && this->stopFlag == false; ++i){
+    for(uint32_t i = 0; i < requestCount && this->stopFlag == false; ++i){
         auto lastTime = std::chrono::high_resolution_clock::now();
 
         DWORD resIcmp = IcmpSendEcho(hIcmp, ip, SendData, sizeof(SendData), nullptr, ReplyBuffer, ReplySize, 1000);
@@ -182,12 +175,20 @@ std::vector<double> Pinger::runPingProcessInstance(const uint16_t requestCount, 
 
         result.push_back(pReply->RoundTripTime);
 
+        this->progressMutex.lock();
         if(this->progress + progressStep <= 1.0){//если шагов больше чем requestCount - не переполняем счетчик
             this->progress += progressStep;
         }
+        this->progressMutex.unlock();
 
-        if(i < this->requestCount)
+        if(i < requestCount)
             std::this_thread::sleep_until(lastTime + pingDelay);
+    }
+
+    if(this->stopFlag == false){
+        this->progressMutex.lock();
+        this->progress = 1.0;
+        this->progressMutex.unlock();
     }
 
     return result;
@@ -220,7 +221,8 @@ void Pinger::stop(){
 }
 
 double Pinger::getProgress() const noexcept{
-	return this->progress;
+    std::lock_guard<mutex> lg(this->progressMutex);
+    return this->progress;
 }
 
 bool Pinger::isReady() const noexcept{

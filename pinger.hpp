@@ -16,9 +16,9 @@ protected:
 	std::string host;
 	static constexpr uint32_t skip = 5;
 	std::atomic<bool> stopFlag, readyFlag;
-	std::atomic<double> progress;
+    double progress;
 	static std::mutex sysCallMutex;
-	std::mutex runInstanceMutex, accessPropertyMutex;
+    mutable std::mutex runInstanceMutex, accessPropertyMutex, progressMutex;
 	std::vector<double> result;
 	std::shared_ptr<std::runtime_error> exception;
 
@@ -30,8 +30,7 @@ protected:
 #endif
 
 public:
-	Pinger(const std::string &host);
-	//Pinger(const std::string &host, const uint16_t requestCount, const double delay);
+    Pinger(const std::string &host);
 	~Pinger();
 
 	void run(const uint16_t requestCount, const double delay) noexcept;

@@ -13,7 +13,7 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp\
-        mainwindow.cpp \
+	mainwindow.cpp \
     pinger.cpp \
     pingtimeplot.cpp \
     QCustomPlot/qcustomplot.cpp \
@@ -40,6 +40,5 @@ QMAKE_CXXFLAGS += -pthread
 LIBS += -lpthread
 
 win32: LIBS += -lWS2_32
-
 win32: LIBS += -lIPHlpApi
-
+win32: LIBS += -lDnsAPI
