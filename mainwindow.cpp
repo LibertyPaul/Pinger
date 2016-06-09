@@ -116,8 +116,8 @@ MainWindow::MainWindow(QWidget *parent) :
 
 	targetsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
-	qRegisterMetaType<QVector<int>>();
-	qRegisterMetaType<const QVector<double> &>();
+	/*qRegisterMetaType<QVector<int>>();
+	qRegisterMetaType<const QVector<double> &>();*/
 
 
 	this->pingTimeTable = new PingTimeTable(this);
